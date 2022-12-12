@@ -1,0 +1,76 @@
+---
+title: "SHELF - Spatially Weighted Heatmap(s)"
+author: "Michael Schram"
+date: "2022-12-09"
+output: 
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+This script is used to generate spatially-weighted heatmaps based on the
+Metabarcoding results of the CUFES data
+
+```{r, Libraries & Raw Data Import}
+# Load package libraries
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(sf)
+library(mapview)
+library(ggmap)
+
+# Import station coordinates and depth. 
+Sites <- read_xlsx("../1. Data/Fish Egg Metabarcoding Master Spreadsheet 2022-11-10.xlsx",
+                   sheet = "Cruise-Station IDs")
+
+# Import raw metabarcoding data
+Eggs  <- read_xlsx("../1. Data/Fish Egg Metabarcoding Master Spreadsheet 2022-11-10.xlsx",
+                   sheet = "QAQCd-2019 metabarcoding") %>%
+  # Remove last row of "Total" values.
+  drop_na() %>%
+  # Coerce data names into coding friendly notation(s)
+  rename(Scientific_Name = 'Scientific Name',
+         Common_Name     = 'Common Name')
+
+```
+
+```{r Data wrangling}
+Eggs <- Eggs %>%
+  # Elongate species-by-site matrix to long form for summation
+  pivot_longer(-c(Habitat:Common_Name),
+                  names_to  = "Site", 
+                  values_to = "Percent") %>%
+  # Set grouping and summations characteristic(s)
+  group_by(Habitat, Site) %>%
+  filter(Percent > 0) %>%
+  summarize(count = n(),
+            .groups = 'drop') %>%
+  # Expand species-by-site list to wide form for mapping purposes
+  pivot_wider(names_from  = "Habitat",
+              values_from = "count") %>%
+  replace(is.na(.),0)
+
+# Append "D" to Sites dataframe 'R' field to prepare for dataframe merge
+Sites$R <- paste0("D", Sites$R)
+
+# Combine metabarcoding results & geospatial site metadata
+AllData <- merge(x = Eggs, 
+                 y = Sites, 
+                 by.x = "Site",
+                 by.y = "R")
+
+# Remove "D" from Site names for cleaner site labelling.
+AllData$Site <- gsub("D","",AllData$Site)
+
+# Export final dataframe to .csv file for use in qGIS mapping software
+write.csv(AllData, 
+          paste0("qGIS_plot(s)/qGIS_Master_Richness_", Sys.Date(), ".csv"),
+          row.names = FALSE)
+```
